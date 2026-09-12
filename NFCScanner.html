@@ -4,63 +4,90 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NFC Verification & Canvas Scanner</title>
+  <title>NFC Verification &amp; Canvas Scanner</title>
   <style>
-    body { 
+    body {
         /* Drop wp15044258.webp next to this file; the color shows if it is missing. */
         background-color: #f9f9f9;
         background-image: url("wp15044258.webp");
         background-attachment: fixed;
         background-size: 350px 350px;
-        padding: 20px; 
-        max-width: 500px; 
-        margin: auto; 
+        padding: 20px;
+        max-width: 500px;
+        margin: auto;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     }
 
-    h2 { 
-        margin-bottom: 5px; 
+    h2 {
+        margin-bottom: 5px;
     }
 
-    button { 
-        width: 100%; 
-        padding: 15px; 
-        font-size: 18px; 
-        font-weight: bold; 
-        background: #007bff; 
-        color: white; 
-        border: none; 
-        border-radius: 8px; 
-        cursor: pointer; 
-        margin-bottom: 15px; 
-    }
-
-    .box { 
-        background: white; 
-        padding: 15px; 
-        border-radius: 8px; 
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+    button {
+        width: 100%;
+        padding: 15px;
+        font-size: 18px;
+        font-weight: bold;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
         margin-bottom: 15px;
     }
 
-    .status-box { 
-        font-weight: bold; 
-        padding: 12px; 
-        border-radius: 6px; 
-        text-align: center; 
+    button:disabled {
+        background: #9bbfe4;
+        cursor: not-allowed;
     }
 
-    .valid { background: #d4edda; 
-        color: #155724; 
-        border: 1px solid #c3e6cb; 
+    .secondary {
+        background: #6c757d;
+    }
+
+    .roles {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+
+    .roles button {
+        margin-bottom: 0;
+        background: #e2e3e5;
+        color: #383d41;
+    }
+
+    .roles button.active {
+        background: #007bff;
+        color: white;
+    }
+
+    .box {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        margin-bottom: 15px;
+    }
+
+    .status-box {
+        font-weight: bold;
+        padding: 12px;
+        border-radius: 6px;
+        text-align: center;
+    }
+
+    .valid { background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
 
     }
-    .invalid { background: #f8d7da; 
-        color: #721c24; 
+    .invalid { background: #f8d7da;
+        color: #721c24;
         border: 1px solid #f5c6cb;
 
     }
-    .idle { background: #e2e3e5; 
-        color: #383d41; 
+    .idle { background: #e2e3e5;
+        color: #383d41;
     }
 
     .env-info {
@@ -71,13 +98,61 @@
         word-break: break-all;
     }
 
-    canvas { 
-        background: #eeeeee; 
-        border: 1px solid #ccc; 
-        width: 100%; 
-        height: 250px; 
-        border-radius: 6px; 
+    label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 6px;
     }
+
+    input[type="text"], select {
+        width: 100%;
+        padding: 10px;
+        font-size: 16px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        box-sizing: border-box;
+    }
+
+    canvas {
+        background: #eeeeee;
+        border: 1px solid #ccc;
+        width: 100%;
+        height: 250px;
+        border-radius: 6px;
+    }
+
+    /* The pad is drawn on directly, so the browser must not treat a finger
+       drag across it as a page scroll. */
+    #padCanvas {
+        touch-action: none;
+        cursor: crosshair;
+    }
+
+    .payload-preview {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 12px;
+        background: #f4f4f4;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 10px;
+        word-break: break-all;
+        white-space: pre-wrap;
+        margin: 0 0 6px;
+    }
+
+    .byte-count {
+        font-size: 12px;
+        color: #555;
+        margin: 0 0 12px;
+    }
+
+    .byte-count.over {
+        color: #721c24;
+        font-weight: bold;
+    }
+
+    .hidden { display: none; }
   </style>
 
 </head>
@@ -89,23 +164,75 @@
   <h2>NFC Web Receiver</h2>
   <p>Receives Plain Text, Canvas Drawings, and SHA-256 Tokens.</p>
 
-  <button id="scanBtn">Start NFC Scanner</button>
+  <div class="roles">
+    <button id="roleReceiver" class="active">Receiver</button>
+    <button id="roleSender">Sender</button>
+  </div>
 
   <div id="status" class="status-box idle">Status: Offline / Tap Start</div>
 
   <p id="envInfo" class="env-info">-</p>
 
-  <!-- Output 1: Plain Text -->
-  <div class="box">
-    <strong>Scanned Plain Text:</strong>
-    <p id="plainOutput" style="font-size: 18px; color: #333;">-</p>
+
+  <!-- ===================== RECEIVER ===================== -->
+  <div id="receiverView">
+
+    <button id="scanBtn">Start NFC Scanner</button>
+
+    <!-- Output 1: Plain Text -->
+    <div class="box">
+      <strong>Scanned Plain Text:</strong>
+      <p id="plainOutput" style="font-size: 18px; color: #333;">-</p>
+    </div>
+
+    <!-- Output 2: Canvas Drawing -->
+    <div class="box">
+      <strong>Redrawn Canvas Output:</strong><br><br>
+      <canvas id="webCanvas" width="400" height="250"></canvas>
+    </div>
+
   </div>
 
-  <!-- Output 2: Canvas Drawing -->
-  <div class="box">
-    <strong>Redrawn Canvas Output:</strong><br><br>
-    <canvas id="webCanvas" width="400" height="250"></canvas>
+
+  <!-- ====================== SENDER ====================== -->
+  <div id="senderView" class="hidden">
+
+    <div class="box">
+      <label for="payloadType">What to send</label>
+      <select id="payloadType">
+        <option value="plain">Plain text</option>
+        <option value="draw">Canvas drawing</option>
+        <option value="hashed">Hashed token</option>
+      </select>
+
+      <div id="plainFields">
+        <label for="plainInput">Text</label>
+        <input type="text" id="plainInput" value="Hello over NFC">
+      </div>
+
+      <div id="hashedFields" class="hidden">
+        <label for="hashInput">Value to sign</label>
+        <input type="text" id="hashInput" value="PAY-500">
+      </div>
+
+      <div id="drawFields" class="hidden">
+        <label>Draw here</label>
+        <canvas id="padCanvas" width="400" height="250"></canvas>
+        <button id="clearPad" class="secondary" style="margin-top:10px;">Clear drawing</button>
+      </div>
+    </div>
+
+    <div class="box">
+      <strong>Payload to transmit:</strong>
+      <p id="payloadPreview" class="payload-preview">-</p>
+      <p id="byteCount" class="byte-count">-</p>
+
+      <button id="writeBtn">Write to NFC Tag</button>
+      <button id="simulateBtn" class="secondary">Simulate locally (no NFC)</button>
+    </div>
+
   </div>
+
 
   <script>
     // Secret salt key MUST match the SECRET_KEY in MyHCEService.kt.
@@ -115,6 +242,10 @@
     // hash that passes verification below. Genuine tamper-proofing would have
     // to verify server-side, where the key is never handed to the client.
     const SECRET_KEY = "SecretngMamo";
+
+    // Smallest common tag (NTAG213) holds ~144 bytes of payload. Warn past that
+    // rather than letting write() fail against the tag with an opaque error.
+    const TAG_CAPACITY_BYTES = 144;
 
     const scanBtn = document.getElementById('scanBtn');
     const statusDiv = document.getElementById('status');
@@ -131,18 +262,35 @@
       return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
+    // Shared precondition check for both scanning and writing.
+    function nfcUnavailableReason() {
+      if (!window.isSecureContext) {
+        return "Blocked: needs HTTPS. This page is served over " + location.protocol;
+      }
+      if (!('NDEFReader' in window)) {
+        return "No Web NFC in this browser. Use Chrome or Edge on Android.";
+      }
+      return null;
+    }
+
+    function describeNfcError(error) {
+      if (error.name === "NotAllowedError") {
+        return "NFC permission denied, or NFC is off in Android settings.";
+      }
+      if (error.name === "NotSupportedError") {
+        return "No NFC hardware available on this device.";
+      }
+      if (error.name === "NetworkError") {
+        return "Tag moved away too soon, or the tag is read-only / too small.";
+      }
+      return error.name + ": " + error.message;
+    }
+
     // Web NFC Scanner setup
     scanBtn.addEventListener('click', async () => {
-      // Web NFC is gated on a secure context: https:// or http://localhost.
-      // A plain-http LAN address silently has no NDEFReader at all, which is
-      // otherwise indistinguishable from an unsupporting browser.
-      if (!window.isSecureContext) {
-        updateStatus("Blocked: needs HTTPS. This page is served over " + location.protocol, false);
-        return;
-      }
-
-      if (!('NDEFReader' in window)) {
-        updateStatus("No Web NFC in this browser. Use Chrome or Edge on Android.", false);
+      const blocked = nfcUnavailableReason();
+      if (blocked) {
+        updateStatus(blocked, false);
         return;
       }
 
@@ -161,13 +309,7 @@
           }
         });
       } catch (error) {
-        if (error.name === "NotAllowedError") {
-          updateStatus("NFC permission denied, or NFC is off in Android settings.", false);
-        } else if (error.name === "NotSupportedError") {
-          updateStatus("No NFC hardware available on this device.", false);
-        } else {
-          updateStatus(error.name + ": " + error.message, false);
-        }
+        updateStatus(describeNfcError(error), false);
       }
     });
 
@@ -230,15 +372,171 @@
       }
     }
 
+    function updateStatus(msg, isValid) {
+      statusDiv.innerText = msg;
+      statusDiv.className = "status-box " + (isValid === true ? "valid" : isValid === false ? "invalid" : "idle");
+    }
+
+
+    /* ================= ROLE SWITCHING ================= */
+
+    const roleReceiverBtn = document.getElementById('roleReceiver');
+    const roleSenderBtn = document.getElementById('roleSender');
+    const receiverView = document.getElementById('receiverView');
+    const senderView = document.getElementById('senderView');
+
+    function setRole(role) {
+      const sending = role === 'sender';
+      senderView.classList.toggle('hidden', !sending);
+      receiverView.classList.toggle('hidden', sending);
+      roleSenderBtn.classList.toggle('active', sending);
+      roleReceiverBtn.classList.toggle('active', !sending);
+      updateStatus(sending ? "Sender ready. Compose a payload." : "Status: Offline / Tap Start", "idle");
+    }
+
+    roleReceiverBtn.addEventListener('click', () => setRole('receiver'));
+    roleSenderBtn.addEventListener('click', () => setRole('sender'));
+
+
+    /* ================= SENDER: DRAW PAD ================= */
+
+    const pad = document.getElementById('padCanvas');
+    const padCtx = pad.getContext('2d');
+    let strokeCommands = [];
+    let drawing = false;
+
+    // Map a pointer position onto the canvas's internal 400x250 grid; CSS
+    // stretches the element, so client pixels are not canvas pixels.
+    function padPoint(event) {
+      const rect = pad.getBoundingClientRect();
+      return {
+        x: Math.round((event.clientX - rect.left) * (pad.width / rect.width)),
+        y: Math.round((event.clientY - rect.top) * (pad.height / rect.height)),
+      };
+    }
+
+    pad.addEventListener('pointerdown', (event) => {
+      drawing = true;
+      pad.setPointerCapture(event.pointerId);
+      const p = padPoint(event);
+      strokeCommands.push(`M,${p.x},${p.y}`);
+      padCtx.beginPath();
+      padCtx.moveTo(p.x, p.y);
+      refreshPayload();
+    });
+
+    pad.addEventListener('pointermove', (event) => {
+      if (!drawing) return;
+      const p = padPoint(event);
+      strokeCommands.push(`L,${p.x},${p.y}`);
+      padCtx.lineWidth = 3;
+      padCtx.strokeStyle = "#000000";
+      padCtx.lineTo(p.x, p.y);
+      padCtx.stroke();
+      refreshPayload();
+    });
+
+    function endStroke() {
+      drawing = false;
+    }
+    pad.addEventListener('pointerup', endStroke);
+    pad.addEventListener('pointercancel', endStroke);
+
+    document.getElementById('clearPad').addEventListener('click', () => {
+      strokeCommands = [];
+      padCtx.clearRect(0, 0, pad.width, pad.height);
+      refreshPayload();
+    });
+
+
+    /* ============== SENDER: PAYLOAD BUILDING ============== */
+
+    const payloadType = document.getElementById('payloadType');
+    const plainInput = document.getElementById('plainInput');
+    const hashInput = document.getElementById('hashInput');
+    const payloadPreview = document.getElementById('payloadPreview');
+    const byteCount = document.getElementById('byteCount');
+    const writeBtn = document.getElementById('writeBtn');
+
+    // Builds exactly the string the receiver's processPayload() expects.
+    async function buildPayload() {
+      const kind = payloadType.value;
+
+      if (kind === 'draw') {
+        return "DRAW:" + (strokeCommands.length ? strokeCommands.join(";") : "NONE");
+      }
+
+      if (kind === 'hashed') {
+        const value = hashInput.value;
+        const hash = await computeSHA256(value + SECRET_KEY);
+        return `HASHED:${value}:${hash}`;
+      }
+
+      return plainInput.value;
+    }
+
+    async function refreshPayload() {
+      // Only the selected payload type's inputs are relevant.
+      document.getElementById('plainFields').classList.toggle('hidden', payloadType.value !== 'plain');
+      document.getElementById('hashedFields').classList.toggle('hidden', payloadType.value !== 'hashed');
+      document.getElementById('drawFields').classList.toggle('hidden', payloadType.value !== 'draw');
+
+      const payload = await buildPayload();
+      payloadPreview.innerText = payload;
+
+      const bytes = new TextEncoder().encode(payload).length;
+      const over = bytes > TAG_CAPACITY_BYTES;
+      byteCount.innerText = bytes + " bytes"
+        + (over ? " - too big for a 144-byte NTAG213; use an NTAG215 (504 B) or draw less." : "");
+      byteCount.className = "byte-count" + (over ? " over" : "");
+
+      return payload;
+    }
+
+    payloadType.addEventListener('change', refreshPayload);
+    plainInput.addEventListener('input', refreshPayload);
+    hashInput.addEventListener('input', refreshPayload);
+
+
+    /* ================= SENDER: ACTIONS ================= */
+
+    writeBtn.addEventListener('click', async () => {
+      const blocked = nfcUnavailableReason();
+      if (blocked) {
+        updateStatus(blocked, false);
+        return;
+      }
+
+      const payload = await refreshPayload();
+      writeBtn.disabled = true;
+      updateStatus("Hold a blank NFC tag against the phone...", "idle");
+
+      try {
+        const ndef = new NDEFReader();
+        await ndef.write({ records: [{ recordType: "text", data: payload }] });
+        updateStatus("Written to tag. Switch to Receiver and scan it.", true);
+      } catch (error) {
+        updateStatus(describeNfcError(error), false);
+      } finally {
+        writeBtn.disabled = false;
+      }
+    });
+
+    // Feeds the composed payload straight into the receiver logic, so the whole
+    // demo can be shown on a desktop with no tag and no NFC hardware at all.
+    document.getElementById('simulateBtn').addEventListener('click', async () => {
+      const payload = await refreshPayload();
+      setRole('receiver');
+      processPayload(payload);
+    });
+
+
     // Surfaced on the page so a phone can be diagnosed without devtools.
     document.getElementById('envInfo').innerText =
       location.origin + (window.isSecureContext ? " | secure" : " | NOT secure")
       + ('NDEFReader' in window ? " | Web NFC ok" : " | no Web NFC");
 
-    function updateStatus(msg, isValid) {
-      statusDiv.innerText = msg;
-      statusDiv.className = "status-box " + (isValid === true ? "valid" : isValid === false ? "invalid" : "idle");
-    }
+    refreshPayload();
   </script>
 </body>
 </html>
