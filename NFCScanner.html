@@ -300,12 +300,25 @@
         updateStatus("Scanning active! Touch your Android phone to the back...", "idle");
 
         ndef.addEventListener("reading", ({ message }) => {
+          let handledText = false;
+
           for (const record of message.records) {
             if (record.recordType === "text") {
               const textDecoder = new TextDecoder(record.encoding);
               const payload = textDecoder.decode(record.data);
               processPayload(payload);
+              handledText = true;
             }
+          }
+
+          // A tap carrying no text record used to look exactly like no tap at
+          // all. Naming what did arrive identifies whichever app answered
+          // instead - a phone's own share service usually sends its own record.
+          if (!handledText) {
+            const seen = message.records
+              .map(record => record.mediaType || record.recordType)
+              .join(", ");
+            updateStatus("Tap read, but no text record. Got: " + (seen || "nothing"), false);
           }
         });
       } catch (error) {
