@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NFC Verification & Canvas Scanner</title>
+  <style>
+    body { 
+        /* Drop wp15044258.webp next to this file; the color shows if it is missing. */
+        background-color: #f9f9f9;
+        background-image: url("wp15044258.webp");
+        background-attachment: fixed;
+        background-size: 350px 350px;
+        padding: 20px; 
+        max-width: 500px; 
+        margin: auto; 
+    }
+
+    h2 { 
+        margin-bottom: 5px; 
+    }
+
+    button { 
+        width: 100%; 
+        padding: 15px; 
+        font-size: 18px; 
+        font-weight: bold; 
+        background: #007bff; 
+        color: white; 
+        border: none; 
+        border-radius: 8px; 
+        cursor: pointer; 
+        margin-bottom: 15px; 
+    }
+
+    .box { 
+        background: white; 
+        padding: 15px; 
+        border-radius: 8px; 
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+        margin-bottom: 15px;
+    }
+
+    .status-box { 
+        font-weight: bold; 
+        padding: 12px; 
+        border-radius: 6px; 
+        text-align: center; 
+    }
+
+    .valid { background: #d4edda; 
+        color: #155724; 
+        border: 1px solid #c3e6cb; 
+
+    }
+    .invalid { background: #f8d7da; 
+        color: #721c24; 
+        border: 1px solid #f5c6cb;
+
+    }
+    .idle { background: #e2e3e5; 
+        color: #383d41; 
+    }
+
+    .env-info {
+        font-size: 12px;
+        color: #555;
+        text-align: center;
+        margin: -8px 0 15px;
+        word-break: break-all;
+    }
+
+    canvas { 
+        background: #eeeeee; 
+        border: 1px solid #ccc; 
+        width: 100%; 
+        height: 250px; 
+        border-radius: 6px; 
+    }
+  </style>
+
+</head>
+
+
+
+<body>
+
+  <h2>NFC Web Receiver</h2>
+  <p>Receives Plain Text, Canvas Drawings, and SHA-256 Tokens.</p>
+
+  <button id="scanBtn">Start NFC Scanner</button>
+
+  <div id="status" class="status-box idle">Status: Offline / Tap Start</div>
+
+  <p id="envInfo" class="env-info">-</p>
+
+  <!-- Output 1: Plain Text -->
+  <div class="box">
+    <strong>Scanned Plain Text:</strong>
+    <p id="plainOutput" style="font-size: 18px; color: #333;">-</p>
+  </div>
+
+  <!-- Output 2: Canvas Drawing -->
+  <div class="box">
+    <strong>Redrawn Canvas Output:</strong><br><br>
+    <canvas id="webCanvas" width="400" height="250"></canvas>
+  </div>
+
+  <script>
+    // Secret salt key MUST match the SECRET_KEY in MyHCEService.kt.
+    //
+    // NOTE: this is a demonstration, not a security boundary. The key ships in
+    // the page source, so anyone who opens view-source can read it and mint a
+    // hash that passes verification below. Genuine tamper-proofing would have
+    // to verify server-side, where the key is never handed to the client.
+    const SECRET_KEY = "SecretngMamo";
+
+    const scanBtn = document.getElementById('scanBtn');
+    const statusDiv = document.getElementById('status');
+    const plainOutput = document.getElementById('plainOutput');
+    const canvas = document.getElementById('webCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // SHA-256 Hashing helper using Web Crypto API
+    async function computeSHA256(str) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(str);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Web NFC Scanner setup
+    scanBtn.addEventListener('click', async () => {
+      // Web NFC is gated on a secure context: https:// or http://localhost.
+      // A plain-http LAN address silently has no NDEFReader at all, which is
+      // otherwise indistinguishable from an unsupporting browser.
+      if (!window.isSecureContext) {
+        updateStatus("Blocked: needs HTTPS. This page is served over " + location.protocol, false);
+        return;
+      }
+
+      if (!('NDEFReader' in window)) {
+        updateStatus("No Web NFC in this browser. Use Chrome or Edge on Android.", false);
+        return;
+      }
+
+      try {
+        const ndef = new NDEFReader();
+        await ndef.scan();
+        updateStatus("Scanning active! Touch your Android phone to the back...", "idle");
+
+        ndef.addEventListener("reading", ({ message }) => {
+          for (const record of message.records) {
+            if (record.recordType === "text") {
+              const textDecoder = new TextDecoder(record.encoding);
+              const payload = textDecoder.decode(record.data);
+              processPayload(payload);
+            }
+          }
+        });
+      } catch (error) {
+        if (error.name === "NotAllowedError") {
+          updateStatus("NFC permission denied, or NFC is off in Android settings.", false);
+        } else if (error.name === "NotSupportedError") {
+          updateStatus("No NFC hardware available on this device.", false);
+        } else {
+          updateStatus(error.name + ": " + error.message, false);
+        }
+      }
+    });
+
+    // Parse incoming payload based on content prefix
+    async function processPayload(data) {
+      if (data.startsWith("DRAW:")) {
+        // --- MODE 2: CANVAS DRAWING ---
+        plainOutput.innerText = "Received Drawing Data";
+        updateStatus("Drawing Vector Captured!", true);
+        renderDrawing(data.replace("DRAW:", ""));
+
+      } else if (data.startsWith("HASHED:")) {
+        // --- MODE 3: HASH VERIFICATION ---
+        const parts = data.split(":");
+        const textValue = parts[1];
+        const receivedHash = parts[2];
+
+        // Re-compute hash locally: SHA256(textValue + SECRET_KEY)
+        const localHash = await computeSHA256(textValue + SECRET_KEY);
+
+        if (localHash === receivedHash) {
+          plainOutput.innerText = `Decoded: "${textValue}"`;
+          updateStatus('VALID PAYMENT TOKEN! (Hash Matches)', true);
+        } else {
+          plainOutput.innerText = `Raw: "${textValue}"`;
+          updateStatus('INVALID / TAMPERED HASH!', false);
+        }
+
+      } else {
+        // --- MODE 1: PLAIN TEXT ---
+        plainOutput.innerText = data;
+        updateStatus("Plain text received successfully", true);
+      }
+    }
+
+    // Redraw point coordinates
+    function renderDrawing(drawData) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (drawData === "NONE" || !drawData) return;
+
+      const commands = drawData.split(";");
+      ctx.beginPath();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#000000";
+
+      for (const cmd of commands) {
+        const parts = cmd.split(",");
+        if (parts.length === 3) {
+          const type = parts[0];
+          const x = parseFloat(parts[1]);
+          const y = parseFloat(parts[2]);
+
+          if (type === "M") {
+            ctx.moveTo(x, y);
+          } else if (type === "L") {
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    // Surfaced on the page so a phone can be diagnosed without devtools.
+    document.getElementById('envInfo').innerText =
+      location.origin + (window.isSecureContext ? " | secure" : " | NOT secure")
+      + ('NDEFReader' in window ? " | Web NFC ok" : " | no Web NFC");
+
+    function updateStatus(msg, isValid) {
+      statusDiv.innerText = msg;
+      statusDiv.className = "status-box " + (isValid === true ? "valid" : isValid === false ? "invalid" : "idle");
+    }
+  </script>
+</body>
+</html>
